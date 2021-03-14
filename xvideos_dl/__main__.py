@@ -19,9 +19,7 @@ console = Console()
 def version_callback(value: bool):
     """Prints the version of the package."""
     if value:
-        console.print(
-            f"[yellow]xvideos-dl[/] version: [bold blue]{__version__}[/]"
-        )
+        console.print(f"[yellow]xvideos-dl[/] version: [bold blue]{__version__}[/]")
         raise typer.Exit()
 
 
@@ -34,9 +32,7 @@ def main(
         "--destination",
         help="Destination to save the downloaded videos.",
     ),
-    low: bool = typer.Option(
-        False, "-l", "--low-definition", help="Download low definition videos."
-    ),
+    low: bool = typer.Option(False, "-l", "--low-definition", help="Download low definition videos."),
     version: bool = typer.Option(
         None,
         "-v",

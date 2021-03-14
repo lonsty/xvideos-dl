@@ -6,7 +6,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "xvideos-dl"
-version = "0.1.0"
+version = "1.0.0"
 description = "CLI to download videos from https://xvideos.com"
 readme = "README.md"
 authors = [
@@ -17,7 +17,7 @@ repository = "https://github.com/lonsty/xvideos-dl"
 homepage = "https://github.com/lonsty/xvideos-dl"
 
 # Keywords description https://python-poetry.org/docs/pyproject/#keywords
-keywords = []  # Update me
+keywords = ["xvideos", "downloader", "videos"]
 
 # Pypi classifiers: https://pypi.org/classifiers/
 classifiers = [  # Update me
@@ -36,6 +36,7 @@ python = "^3.7"
 importlib_metadata = {version = "^1.6.0", python = "<3.8"}
 typer = {extras = ["all"], version = "^0.3.2"}
 rich = "^9.8.2"
+requests = "^2.25.0"
 
 [tool.poetry.dev-dependencies]
 darglint = "^1.5.8"
@@ -52,7 +53,7 @@ pre-commit = "^2.9.3"
 
 [tool.black]
 # https://github.com/psf/black
-line-length = 80
+line-length = 120
 target-version = ["py37"]
 
 [tool.isort]

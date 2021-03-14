@@ -51,17 +51,13 @@ def parse_video_name(index: str) -> str:
 
 
 def safe_filename(filename: str) -> str:
-    return "".join(
-        [char for char in filename if char not in r'\/:*?"<>|']
-    ).strip()
+    return "".join([char for char in filename if char not in r'\/:*?"<>|']).strip()
 
 
 def get_video_full_name(index: str) -> str:
     resp = requests.get(index, timeout=c.TIMEOUT)
     resp.raise_for_status()
-    title_tab = re.search(
-        r'(?<=<meta property="og:title" content=").*?(?="\s*/>)', resp.text
-    )
+    title_tab = re.search(r'(?<=<meta property="og:title" content=").*?(?="\s*/>)', resp.text)
     if title_tab:
         return safe_filename(html.unescape(title_tab.group()))
     return ""
@@ -83,9 +79,7 @@ def get_video_url(vid: str, low: bool = False) -> str:
         if url:
             save_cookie(cookie_raw)
             break
-        cookie_raw = input(
-            "The cookie has expired, please enter a new one:\n"
-        ).strip()
+        cookie_raw = input("The cookie has expired, please enter a new one:\n").strip()
         cookies = parse_cookies(cookie_raw)
 
     return url
@@ -127,9 +121,7 @@ def download(page_url: str, dest: str, low: bool) -> None:
         end = done
 
         headers = {"Range": f"bytes={start}-{end - 1}"}
-        resp = requests.get(
-            url, stream=True, headers=headers, timeout=c.TIMEOUT
-        )
+        resp = requests.get(url, stream=True, headers=headers, timeout=c.TIMEOUT)
         with open(save_name, "ab") as f:
             write = start
             for chunk in resp.iter_content(c.CHUNK_SIZE):
@@ -137,10 +129,7 @@ def download(page_url: str, dest: str, low: bool) -> None:
                 write += c.CHUNK_SIZE
                 percent_done = int(min(write, size) / size * 1000) / 10
                 bar_done = int(percent_done * 0.7)
-                console.print(
-                    f"|{'█' * bar_done}{' ' * (70 - bar_done)}| [green]{percent_done:5.1f}%[/]",
-                    end="\r",
-                )
+                console.print(f"|{'█' * bar_done}{' ' * (70 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r")
 
     if show_process_bar:
         print(end="\n\n")
