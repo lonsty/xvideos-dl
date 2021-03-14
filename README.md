@@ -36,6 +36,19 @@ xvideos-dl --help
 xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life
 ```
 
+## Release History
+
+### 1.0.1
+
+New features:
+
+- Download videos from playlist
+- Show download speed
+
+### 1.0.0
+
+Initial release on PyPY.
+
 <hr>
 
 ## For Contributors

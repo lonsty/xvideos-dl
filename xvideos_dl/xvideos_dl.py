@@ -1,15 +1,20 @@
-from typing import Dict
+from typing import Any, Dict, List
 
 import html
 import re
+import time
+from collections import namedtuple
 from pathlib import Path
 
-import requests
+from requests import Session
+from requests.cookies import cookiejar_from_dict
 from rich.console import Console
 
 from . import constant as c
 
 console = Console()
+session = Session()
+Video = namedtuple("Video", "vid vname pname")
 
 
 def parse_cookies(cookie: str) -> Dict[str, str]:
@@ -36,18 +41,23 @@ def read_cookie() -> str:
     return cookie
 
 
+def find_from_string(pattern: str, string: str) -> str:
+    find = re.search(pattern, string)
+    if not find:
+        raise ValueError(f"can't download video from URL: {string}")
+    return find.group()
+
+
 def parse_video_id(index: str) -> str:
-    find = re.search(r"(?<=video)\d+(?=/)", index)
-    if find:
-        return find.group()
-    return ""
+    return find_from_string(r"(?<=video)\d+(?=/)", index)
 
 
 def parse_video_name(index: str) -> str:
-    find = re.search(r"(?<=\d/).+(?=[/])*", index)
-    if find:
-        return find.group()
-    return ""
+    return find_from_string(r"(?<=\d/).+(?=[/])*", index)
+
+
+def parse_playlist_id(index: str) -> str:
+    return find_from_string(r"(?<=/favorite/)\d+(?=/)", index)
 
 
 def safe_filename(filename: str) -> str:
@@ -55,7 +65,7 @@ def safe_filename(filename: str) -> str:
 
 
 def get_video_full_name(index: str) -> str:
-    resp = requests.get(index, timeout=c.TIMEOUT)
+    resp = session.get(index, timeout=c.TIMEOUT)
     resp.raise_for_status()
     title_tab = re.search(r'(?<=<meta property="og:title" content=").*?(?="\s*/>)', resp.text)
     if title_tab:
@@ -63,50 +73,81 @@ def get_video_full_name(index: str) -> str:
     return ""
 
 
-def get_video_url(vid: str, low: bool = False) -> str:
-    video_api = c.VIDEO_API.format(vid=vid)
+def request_with_cookie(method: str, url: str, return_when: str) -> Dict[str, Any]:
     cookie_raw = read_cookie()
     cookies = parse_cookies(cookie_raw)
-    url = ""
 
     while 1:
-        resp = requests.get(video_api, cookies=cookies, timeout=c.TIMEOUT)
+        session.cookies = cookiejar_from_dict(cookies)
+        resp = session.request(method, url, timeout=c.TIMEOUT)
         resp.raise_for_status()
-        url_field = "URL"
-        if low:
-            url_field = "URL_LOW"
-        url = resp.json().get(url_field)
-        if url:
+        data = resp.json()
+        keys = return_when.split(".")
+        value = data
+        for key in keys:
+            value = value.get(key, {})
+        if value:
             save_cookie(cookie_raw)
             break
+        error = data.get("ERROR")
+        if error:
+            raise ValueError(f"{error} {url}")
         cookie_raw = input("The cookie has expired, please enter a new one:\n").strip()
         cookies = parse_cookies(cookie_raw)
 
-    return url
+    return data
 
 
-def download(page_url: str, dest: str, low: bool) -> None:
+def get_video_url(vid: str, low: bool = False) -> str:
+    video_api = c.VIDEO_API.format(vid=vid)
+    data = request_with_cookie("GET", video_api, return_when="URL")
+
+    url_field = "URL"
+    if low:
+        url_field = "URL_LOW"
+
+    return data.get(url_field)
+
+
+def get_videos_from_play_page(page_url: str) -> Video:
     vid = parse_video_id(page_url)
-    name = get_video_full_name(page_url) or parse_video_name(page_url)
-    if not any([vid, name]):
-        raise ValueError(f"can't download video from URL: {page_url}")
-    url = get_video_url(vid, low)
+    vname = get_video_full_name(page_url) or parse_video_name(page_url)
+    return Video(vid=vid, vname=vname, pname="")
 
-    save_dir = Path(dest)
+
+def get_videos_by_playlist_id(pid: str) -> List[Video]:
+    playlist_api = c.PLAYLIST_API.format(pid=pid)
+    data = request_with_cookie("POST", playlist_api, return_when="logged")
+    playlist_name = data.get("list", {}).get("name")
+    videos_info = data.get("list", {}).get("videos")
+    videos = []
+    for v in videos_info:
+        videos.append(Video(vid=v.get("id"), vname=v.get("tf"), pname=playlist_name))
+
+    return videos
+
+
+def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
+    url = get_video_url(video.vid, low)
+
+    save_dir = Path(dest) / video.pname
     save_dir.mkdir(exist_ok=True)
-    save_name = save_dir / f"{name}.mp4"
-
-    head = requests.head(url, stream=True)
+    save_name = save_dir / f"{video.vname}(#{video.vid}).mp4"
+    head = session.head(url, stream=True)
     size = int(head.headers["Content-Length"].strip())
-    console.print(f"Video ID   : [cyan]{vid}[/]")
-    console.print(f"Video Name : [yellow]{name}[/]")
+
+    console.print(f"Video ID   : [cyan]{video.vid}[/]")
+    console.print(f"Video Name : [yellow]{video.vname}[/]")
     console.print(f"Video Link : [underline]{url}[/]")
     console.print(f"Video Size : [white]{size / 1024 ** 2:.2f}[/] MB")
     console.print(f"Destination: [white]{save_name.absolute()}[/]")
 
     done = 0
     if save_name.is_file():
-        done = save_name.stat().st_size
+        if overwrite:
+            save_name.unlink(missing_ok=True)
+        else:
+            done = save_name.stat().st_size
 
     show_process_bar = False
     if done < size:
@@ -114,22 +155,35 @@ def download(page_url: str, dest: str, low: bool) -> None:
         print()
 
     while done < size:
+        time_start = time.time()
         start = done
         done += c.FRAGMENT_SIZE
         if done > size:
             done = size
         end = done
-
         headers = {"Range": f"bytes={start}-{end - 1}"}
-        resp = requests.get(url, stream=True, headers=headers, timeout=c.TIMEOUT)
+        resp = session.get(url, stream=True, headers=headers, timeout=c.TIMEOUT)
+
         with open(save_name, "ab") as f:
             write = start
             for chunk in resp.iter_content(c.CHUNK_SIZE):
                 f.write(chunk)
+
                 write += c.CHUNK_SIZE
                 percent_done = int(min(write, size) / size * 1000) / 10
-                bar_done = int(percent_done * 0.7)
-                console.print(f"|{'█' * bar_done}{' ' * (70 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r")
+                bar_done = int(percent_done * 0.6)
+                console.print(f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r")
+        # Download speed
+        speed = (end - start) / (time.time() - time_start)
+        if speed < 1024:  # 1KB
+            speed_text = f"{speed:7.2f}B/s"
+        elif speed < 1048576:  # 1MB
+            speed_text = f"{speed / 1024:7.2f}KB/s"
+        else:
+            speed_text = f"{speed / 1048576:7.2f}MB/s"
+        console.print(
+            f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}% {speed_text}[/]", end="\r"
+        )
 
     if show_process_bar:
         print(end="\n\n")
