@@ -2,8 +2,11 @@ from typing import Any, Dict, List
 
 import html
 import re
+import threading
 import time
 from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 from pathlib import Path
 
 from requests import Session
@@ -13,8 +16,38 @@ from rich.console import Console
 from . import constant as c
 
 console = Console()
-session = Session()
 Video = namedtuple("Video", "vid vname pname")
+Clip = namedtuple("Clip", "start end")
+thread_local = threading.local()
+
+
+def get_session() -> Session:
+    if not hasattr(thread_local, "session"):
+        thread_local.session = Session()
+    return thread_local.session
+
+
+def retry(exceptions, tries=3, delay=1, backoff=2, logger=None):
+    def deco_retry(f):
+        @wraps(f)
+        def f_retry(*args, **kwargs):
+            mtries, mdelay = tries, delay
+            while mtries > 1:
+                try:
+                    return f(*args, **kwargs)
+                except exceptions as e:
+                    if logger:
+                        logger.warning(f"{e}, Retrying in {mdelay} seconds...")
+                    else:
+                        console.print(f"[red]\n{e}\n[/]")
+                    time.sleep(mdelay)
+                    mtries -= 1
+                    mdelay *= backoff
+            return f(*args, **kwargs)
+
+        return f_retry
+
+    return deco_retry
 
 
 def parse_cookies(cookie: str) -> Dict[str, str]:
@@ -65,7 +98,7 @@ def safe_filename(filename: str) -> str:
 
 
 def get_video_full_name(index: str) -> str:
-    resp = session.get(index, timeout=c.TIMEOUT)
+    resp = get_session().get(index, timeout=c.TIMEOUT)
     resp.raise_for_status()
     title_tab = re.search(r'(?<=<meta property="og:title" content=").*?(?="\s*/>)', resp.text)
     if title_tab:
@@ -76,6 +109,7 @@ def get_video_full_name(index: str) -> str:
 def request_with_cookie(method: str, url: str, return_when: str) -> Dict[str, Any]:
     cookie_raw = read_cookie()
     cookies = parse_cookies(cookie_raw)
+    session = get_session()
 
     while 1:
         session.cookies = cookiejar_from_dict(cookies)
@@ -127,13 +161,20 @@ def get_videos_by_playlist_id(pid: str) -> List[Video]:
     return videos
 
 
+# @retry(Exception)
+def concurrent_task(url: str, clip: Clip) -> Session.request:
+    headers = {"Range": f"bytes={clip.start}-{clip.end}"}
+    return get_session().get(url, stream=True, headers=headers, timeout=c.TIMEOUT)
+
+
 def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
+    time_start = time.time()
     url = get_video_url(video.vid, low)
 
     save_dir = Path(dest) / video.pname
     save_dir.mkdir(exist_ok=True)
     save_name = save_dir / f"{video.vname}(#{video.vid}).mp4"
-    head = session.head(url, stream=True)
+    head = get_session().head(url, stream=True)
     size = int(head.headers["Content-Length"].strip())
 
     console.print(f"Video ID   : [cyan]{video.vid}[/]")
@@ -154,36 +195,43 @@ def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
         show_process_bar = True
         print()
 
-    while done < size:
-        time_start = time.time()
-        start = done
-        done += c.FRAGMENT_SIZE
-        if done > size:
-            done = size
-        end = done
-        headers = {"Range": f"bytes={start}-{end - 1}"}
-        resp = session.get(url, stream=True, headers=headers, timeout=c.TIMEOUT)
+    points = list(range(done, size, c.FRAGMENT_SIZE))
+    if points[-1] < size:
+        points.append(size)
+    clips = [Clip(points[idx], points[idx + 1] - 1) for idx, _ in enumerate(points[:-1])]
 
-        with open(save_name, "ab") as f:
-            write = start
-            for chunk in resp.iter_content(c.CHUNK_SIZE):
-                f.write(chunk)
+    ex = ThreadPoolExecutor(max_workers=4)
+    results = ex.map(concurrent_task, [url] * len(clips), clips)
+    try:
+        for idx, resp in enumerate(results):
+            done += c.FRAGMENT_SIZE
+            if done > size:
+                done = size
 
-                write += c.CHUNK_SIZE
-                percent_done = int(min(write, size) / size * 1000) / 10
-                bar_done = int(percent_done * 0.6)
-                console.print(f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r")
-        # Download speed
-        speed = (end - start) / (time.time() - time_start)
-        if speed < 1024:  # 1KB
-            speed_text = f"{speed:7.2f}B/s"
-        elif speed < 1048576:  # 1MB
-            speed_text = f"{speed / 1024:7.2f}KB/s"
-        else:
-            speed_text = f"{speed / 1048576:7.2f}MB/s"
-        console.print(
-            f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}% {speed_text}[/]", end="\r"
-        )
+            with open(save_name, "ab") as f:
+                write = clips[idx].start
+                for chunk in resp.iter_content(c.CHUNK_SIZE):
+                    f.write(chunk)
+
+                    write += c.CHUNK_SIZE
+                    percent_done = int(min(write, size) / size * 1000) / 10
+                    bar_done = int(percent_done * 0.6)
+                    console.print(f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r")
+
+            # Download speed
+            speed = (clips[idx].end - clips[idx].start) / (time.time() - time_start)
+            if speed < 1024:  # 1KB
+                speed_text = f"{speed:7.2f}B/s"
+            elif speed < 1048576:  # 1MB
+                speed_text = f"{speed / 1024:7.2f}KB/s"
+            else:
+                speed_text = f"{speed / 1048576:7.2f}MB/s"
+            console.print(
+                f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}% {speed_text}[/]", end="\r"
+            )
+    except Exception:
+        ex.shutdown()
+        raise
 
     if show_process_bar:
         print(end="\n\n")

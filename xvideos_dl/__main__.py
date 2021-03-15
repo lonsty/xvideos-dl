@@ -61,5 +61,6 @@ def main(
             with HiddenCursor():
                 download(video, dest, low, overwrite)
         except Exception as e:
-            console.print(f"[red]{e}[/]")
-            sys.exit(1)
+            raise
+            # console.print(f"[red]{e}[/]")
+            # sys.exit(1)
