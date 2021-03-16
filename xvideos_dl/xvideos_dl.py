@@ -1,12 +1,16 @@
 from typing import Any, Dict, List
 
 import html
+import random
 import re
 import time
 from collections import namedtuple
+from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 
-from requests import Session
+from bs4 import BeautifulSoup
+from requests import Response, Session
 from requests.cookies import cookiejar_from_dict
 from rich.console import Console
 
@@ -14,7 +18,46 @@ from . import constant as c
 
 console = Console()
 session = Session()
-Video = namedtuple("Video", "vid vname pname")
+Video = namedtuple("Video", "vid vname pname uname")
+
+
+@dataclass
+class Process:
+    now: int = 1
+    total: int = 1
+
+    def status(self):
+        if self.total > 1:
+            return f"{self.now}/{self.total} ({self.now / self.total * 100:.0f}%)"
+        # return "☯"
+        return "⚓"
+
+
+def retry(exceptions=Exception, tries=3, delay=1, backoff=2):
+    def deco_retry(f):
+        @wraps(f)
+        def f_retry(*args, **kwargs):
+            mtries, mdelay = tries, delay
+            while mtries > 1:
+                try:
+                    return f(*args, **kwargs)
+                except exceptions as e:
+                    console.print(f"[red]{e}, Retrying in {mdelay} seconds...[/]")
+                    time.sleep(mdelay)
+                    mtries -= 1
+                    mdelay *= backoff
+            return f(*args, **kwargs)
+
+        return f_retry
+
+    return deco_retry
+
+
+@retry()
+def session_request(method: str, url: str, **kwargs) -> Response:
+    resp = session.request(method, url, **kwargs)
+    resp.raise_for_status()
+    return resp
 
 
 def parse_cookies(cookie: str) -> Dict[str, str]:
@@ -27,7 +70,7 @@ def parse_cookies(cookie: str) -> Dict[str, str]:
 
 def save_cookie(cookie: str) -> None:
     cache_dir = Path.home() / f".{c.APP_NAME}"
-    cache_dir.mkdir(exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     with open(cache_dir / "cookie", "w") as f:
         f.write(cookie)
 
@@ -49,15 +92,19 @@ def find_from_string(pattern: str, string: str) -> str:
 
 
 def parse_video_id(index: str) -> str:
-    return find_from_string(r"(?<=video)\d+(?=/)", index)
+    return find_from_string(r"(?<=video)\d+(?=/)", index.strip())
 
 
 def parse_video_name(index: str) -> str:
-    return find_from_string(r"(?<=\d/).+(?=[/])*", index)
+    return find_from_string(r"(?<=\d/).+(?=[/])*", index.strip())
+
+
+def parse_username(index: str) -> str:
+    return find_from_string(r"(?<=profiles/|channels/)\w*(?=/*)", index.strip())
 
 
 def parse_playlist_id(index: str) -> str:
-    return find_from_string(r"(?<=/favorite/)\d+(?=/)", index)
+    return find_from_string(r"(?<=/favorite/)\d+(?=/)", index.strip())
 
 
 def safe_filename(filename: str) -> str:
@@ -65,7 +112,7 @@ def safe_filename(filename: str) -> str:
 
 
 def get_video_full_name(index: str) -> str:
-    resp = session.get(index, timeout=c.TIMEOUT)
+    resp = session_request("GET", index, timeout=c.TIMEOUT)
     resp.raise_for_status()
     title_tab = re.search(r'(?<=<meta property="og:title" content=").*?(?="\s*/>)', resp.text)
     if title_tab:
@@ -79,7 +126,7 @@ def request_with_cookie(method: str, url: str, return_when: str) -> Dict[str, An
 
     while 1:
         session.cookies = cookiejar_from_dict(cookies)
-        resp = session.request(method, url, timeout=c.TIMEOUT)
+        resp = session_request(method, url, timeout=c.TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
         keys = return_when.split(".")
@@ -112,7 +159,25 @@ def get_video_url(vid: str, low: bool = False) -> str:
 def get_videos_from_play_page(page_url: str) -> Video:
     vid = parse_video_id(page_url)
     vname = get_video_full_name(page_url) or parse_video_name(page_url)
-    return Video(vid=vid, vname=vname, pname="")
+    return Video(vid=vid, vname=vname, pname="", uname="")
+
+
+def get_videos_from_user_page(page_url: str, aid: str, base_api: str, videos: List[Video]) -> List[Video]:
+    username = parse_username(page_url)
+    start_page = base_api.format(u=username, aid=aid)
+    resp = session_request("POST", start_page, timeout=c.TIMEOUT)
+    resp.raise_for_status()
+    next_aid = find_from_string(r"\d+", resp.text.splitlines()[0])
+
+    bs = BeautifulSoup(resp.text, "html.parser")
+    blocks = bs.find_all("div", class_="thumb-block")
+    for block in blocks:
+        vid = block.attrs.get("data-id")
+        vname = block.find("p", class_="title").find("a").attrs.get("title")
+        videos.append(Video(vid=vid, vname=vname, pname="", uname=username))
+    if int(next_aid) > 0:
+        return get_videos_from_user_page(page_url, next_aid, base_api, videos)
+    return videos
 
 
 def get_videos_by_playlist_id(pid: str) -> List[Video]:
@@ -122,7 +187,7 @@ def get_videos_by_playlist_id(pid: str) -> List[Video]:
     videos_info = data.get("list", {}).get("videos")
     videos = []
     for v in videos_info:
-        videos.append(Video(vid=v.get("id"), vname=v.get("tf"), pname=playlist_name))
+        videos.append(Video(vid=v.get("id"), vname=v.get("tf"), pname=playlist_name, uname=""))
 
     return videos
 
@@ -130,13 +195,13 @@ def get_videos_by_playlist_id(pid: str) -> List[Video]:
 def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
     url = get_video_url(video.vid, low)
 
-    save_dir = Path(dest) / video.pname
-    save_dir.mkdir(exist_ok=True)
+    save_dir = Path(dest) / (video.pname or video.uname)
+    save_dir.mkdir(parents=True, exist_ok=True)
     save_name = save_dir / f"{video.vname}(#{video.vid}).mp4"
-    head = session.head(url, stream=True)
+    head = session_request("HEAD", url, stream=True)
     size = int(head.headers["Content-Length"].strip())
 
-    console.print(f"Video ID   : [cyan]{video.vid}[/]")
+    console.print(f"Video ID   : [white]{video.vid}[/]")
     console.print(f"Video Name : [yellow]{video.vname}[/]")
     console.print(f"Video Link : [underline]{url}[/]")
     console.print(f"Video Size : [white]{size / 1024 ** 2:.2f}[/] MB")
@@ -145,7 +210,7 @@ def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
     done = 0
     if save_name.is_file():
         if overwrite:
-            save_name.unlink(missing_ok=True)
+            save_name.unlink()
         else:
             done = save_name.stat().st_size
 
@@ -154,6 +219,7 @@ def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
         show_process_bar = True
         print()
 
+    emoji = random.choice(c.SMILE_EMOJIS)
     while done < size:
         time_start = time.time()
         start = done
@@ -162,7 +228,7 @@ def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
             done = size
         end = done
         headers = {"Range": f"bytes={start}-{end - 1}"}
-        resp = session.get(url, stream=True, headers=headers, timeout=c.TIMEOUT)
+        resp = session_request("GET", url, stream=True, headers=headers, timeout=c.TIMEOUT)
 
         with open(save_name, "ab") as f:
             write = start
@@ -172,7 +238,9 @@ def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
                 write += c.CHUNK_SIZE
                 percent_done = int(min(write, size) / size * 1000) / 10
                 bar_done = int(percent_done * 0.6)
-                console.print(f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r")
+                console.print(
+                    f"{emoji} |{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r"
+                )
         # Download speed
         speed = (end - start) / (time.time() - time_start)
         if speed < 1024:  # 1KB
@@ -182,7 +250,7 @@ def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
         else:
             speed_text = f"{speed / 1048576:7.2f}MB/s"
         console.print(
-            f"|{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}% {speed_text}[/]", end="\r"
+            f"{emoji} |{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}% {speed_text}[/]", end="\r"
         )
 
     if show_process_bar:

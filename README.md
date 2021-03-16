@@ -16,6 +16,16 @@ CLI to download videos from https://xvideos.com
 
 </div>
 
+<div align="center"><a href="README_CN.md">中文文档</a></div>
+
+## Features
+
+- [X] Download a single video (requires the URL of the video playback page)
+- [X] Download all videos in the favorites (requires the URL of the favorite page)
+- [X] Download all videos uploaded by the user (requires the URL of the user's homepage)
+- [X] Download all videos published by the channel (requires the URL of the channel homepage)
+- [X] Segmented high-speed download, breakpoint download, progress and status display
+
 ## Usage
 
 - Install xvideos-dl
@@ -30,20 +40,29 @@ pip install -U xvideos-dl
 xvideos-dl --help
 ```
 
-- Download video
+- Download single / favorites / uploaded / published videos in one command:
 
 ```bash
-xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life
+xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life https://www.xvideos.com/favorite/71879935/_ https://www.xvideos.com/profiles/mypornstation https://www.xvideos.com/channels/av69tv  
 ```
 
 ## Release History
 
+### 1.1.0
+
+New Features:
+
+- Download all videos uploaded by users.
+- Download all videos posted by the channel.
+- Download single, playlist, user uploaded and channel posted videos in one command.
+- Optimize download status display.
+
 ### 1.0.1
 
-New features:
+New Features:
 
-- Download videos from playlist
-- Show download speed
+- Download videos from playlist.
+- Show download speed.
 
 ### 1.0.0
 

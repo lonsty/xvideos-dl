@@ -7,7 +7,16 @@ import typer
 from cursor import HiddenCursor
 from rich.console import Console
 from xvideos_dl import __version__
-from xvideos_dl.xvideos_dl import download, get_videos_by_playlist_id, get_videos_from_play_page, parse_playlist_id
+from xvideos_dl.xvideos_dl import (
+    Process,
+    download,
+    get_videos_by_playlist_id,
+    get_videos_from_play_page,
+    get_videos_from_user_page,
+    parse_playlist_id,
+)
+
+from . import constant as c
 
 app = typer.Typer(
     name="xvideos-dl",
@@ -24,18 +33,19 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 
-@app.command(name="")
+@app.command(name="CLI to download videos from https://xvideos.com")
 def main(
-    url: List[str] = typer.Argument(..., help="URL of the video web page."),
-    playlist: bool = typer.Option(False, "-p", "--playlist", help="Download videos from playlist web page."),
+    urls: List[str] = typer.Argument(..., help="URL of the video web page."),
     dest: str = typer.Option(
         "./xvideos",
         "-d",
         "--destination",
         help="Destination to save the downloaded videos.",
     ),
+    max: int = typer.Option(None, "-n", "--maximum", help="Maximum videos to download."),
+    reversed: bool = typer.Option(False, "-r", "--reversed", help="Download videos in reverse order."),
     low: bool = typer.Option(False, "-l", "--low-definition", help="Download low definition videos."),
-    overwrite: bool = typer.Option(False, "-O", "--overwrite", help="Overwrite the exist video files."),
+    overwrite: bool = typer.Option(False, "-o", "--overwrite", help="Overwrite the exist video files."),
     version: bool = typer.Option(
         None,
         "-v",
@@ -46,19 +56,35 @@ def main(
     ),
 ):
     """CLI to download videos from https://xvideos.com"""
-    videos = []
-    if playlist:
-        pids = [parse_playlist_id(u) for u in url]
-        for pid in pids:
-            vs = get_videos_by_playlist_id(pid)
-            videos.extend(vs)
-    else:
-        for page_url in url:
-            videos.append(get_videos_from_play_page(page_url))
+    videos_to_download = []
+    for url in urls:
+        if "/profiles/" in url:
+            videos = []
+            videos = get_videos_from_user_page(url, "0", c.USER_UPLOAD_API, videos)
+            videos_to_download.extend(videos)
+        elif "/channels/" in url:
+            videos = []
+            videos = get_videos_from_user_page(url, "0", c.CHANNEL_API, videos)
+            videos_to_download.extend(videos)
+        elif "/favorite/" in url:
+            pid = parse_playlist_id(url)
+            videos = get_videos_by_playlist_id(pid)
+            videos_to_download.extend(videos)
+        else:
+            video = get_videos_from_play_page(url)
+            videos_to_download.append(video)
 
-    for video in videos:
+    if reversed:
+        videos_to_download = videos_to_download[::-1]
+    if max:
+        videos_to_download = videos_to_download[:max]
+
+    total = len(videos_to_download)
+    for idx, video in enumerate(videos_to_download):
         try:
             with HiddenCursor():
+                process = Process(idx + 1, total)
+                console.print(f"Downloading: [cyan]{process.status()}[/]")
                 download(video, dest, low, overwrite)
         except Exception as e:
             console.print(f"[red]{e}[/]")
