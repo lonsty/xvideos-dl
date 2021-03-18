@@ -52,6 +52,17 @@ xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life ht
 
 ## Release History
 
+### 1.1.1
+
+New Feature:
+
+- Add parameters to control the start and end of the video in the download list.
+
+Others:
+
+- When running the same command repeatedly, quickly skip the downloaded video.
+- Catch exceptions: 404 not found, forbidden downloading...
+
 ### 1.1.0
 
 New Features:
@@ -65,7 +76,7 @@ New Features:
 
 New Features:
 
-- Download all videos in playlists.
+- Download videos from favorites.
 - Show download speed.
 
 ### 1.0.0

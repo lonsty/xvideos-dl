@@ -16,7 +16,7 @@ CLI to download videos from https://xvideos.com
 
 </div>
 
-<div align="center"><a href="README_CN.md">中文文档</a></div>
+<div align="center"><a href="https://github.com/lonsty/xvideos-dl/blob/master/README_CN.md">中文文档</a></div>
 
 ## Features
 
@@ -27,6 +27,13 @@ CLI to download videos from https://xvideos.com
 - [X] Segmented high-speed download, breakpoint download, progress and status display
 
 ## Usage
+
+⚠️**Requires:**
+
+- `Python`: >= 3.7
+- `Cookie`: When you run it for the first time, you will be prompted to enter the cookie, log in https://xvideos.com with your account, copy and paste a long string of cookies, then enjoy it.
+
+Cookie is stored in *~/.xvideos/cookie* (or *C:\Users\<USER>\cookie*).
 
 - Install xvideos-dl
 
@@ -48,6 +55,17 @@ xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life ht
 
 ## Release History
 
+### 1.1.1
+
+New Feature:
+
+- Add parameters to control the start and end of the video in the download list.
+
+Others:
+
+- When running the same command repeatedly, quickly skip the downloaded video.
+- Catch exceptions: 404 not found, forbidden downloading...
+
 ### 1.1.0
 
 New Features:
@@ -61,7 +79,7 @@ New Features:
 
 New Features:
 
-- Download videos from playlist.
+- Download videos from favorites.
 - Show download speed.
 
 ### 1.0.0

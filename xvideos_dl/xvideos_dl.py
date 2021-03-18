@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import html
 import random
@@ -10,7 +10,8 @@ from functools import wraps
 from pathlib import Path
 
 from bs4 import BeautifulSoup
-from requests import Response, Session
+from integv import FileIntegrityVerifier
+from requests import HTTPError, Response, Session
 from requests.cookies import cookiejar_from_dict
 from rich.console import Console
 
@@ -18,6 +19,7 @@ from . import constant as c
 
 console = Console()
 session = Session()
+verifier = FileIntegrityVerifier()
 Video = namedtuple("Video", "vid vname pname uname")
 
 
@@ -53,9 +55,13 @@ def retry(exceptions=Exception, tries=3, delay=1, backoff=2):
     return deco_retry
 
 
-@retry()
-def session_request(method: str, url: str, **kwargs) -> Response:
+@retry(HTTPError)
+def session_request(method: str, url: str, **kwargs) -> Optional[Response]:
     resp = session.request(method, url, **kwargs)
+    if resp.status_code == 404:
+        console.print(f"[red]404 Client Error: Not Found for url: {url}[/]")
+        print()
+        return None
     resp.raise_for_status()
     return resp
 
@@ -113,21 +119,19 @@ def safe_filename(filename: str) -> str:
 
 def get_video_full_name(index: str) -> str:
     resp = session_request("GET", index, timeout=c.TIMEOUT)
-    resp.raise_for_status()
     title_tab = re.search(r'(?<=<meta property="og:title" content=").*?(?="\s*/>)', resp.text)
     if title_tab:
         return safe_filename(html.unescape(title_tab.group()))
     return ""
 
 
-def request_with_cookie(method: str, url: str, return_when: str) -> Dict[str, Any]:
-    cookie_raw = read_cookie()
+def request_with_cookie(method: str, url: str, return_when: str, reset_cookie: bool) -> Dict[str, Any]:
+    cookie_raw = "k=v" if reset_cookie else read_cookie()
     cookies = parse_cookies(cookie_raw)
 
     while 1:
         session.cookies = cookiejar_from_dict(cookies)
         resp = session_request(method, url, timeout=c.TIMEOUT)
-        resp.raise_for_status()
         data = resp.json()
         keys = return_when.split(".")
         value = data
@@ -139,15 +143,19 @@ def request_with_cookie(method: str, url: str, return_when: str) -> Dict[str, An
         error = data.get("ERROR")
         if error:
             raise ValueError(f"{error} {url}")
-        cookie_raw = input("The cookie has expired, please enter a new one:\n").strip()
+        cookie_raw = input(
+            "The cookie has expired, please enter a new one:\n"
+            "(Log in https://xvideos.com with your account via a browser, "
+            "then open the developer mode, copy and paste the cookie here)\n"
+        ).strip()
         cookies = parse_cookies(cookie_raw)
 
     return data
 
 
-def get_video_url(vid: str, low: bool = False) -> str:
+def get_video_url(vid: str, low: bool, reset_cookie: bool) -> str:
     video_api = c.VIDEO_API.format(vid=vid)
-    data = request_with_cookie("GET", video_api, return_when="URL")
+    data = request_with_cookie("GET", video_api, return_when="URL", reset_cookie=reset_cookie)
 
     url_field = "URL"
     if low:
@@ -166,7 +174,6 @@ def get_videos_from_user_page(page_url: str, aid: str, base_api: str, videos: Li
     username = parse_username(page_url)
     start_page = base_api.format(u=username, aid=aid)
     resp = session_request("POST", start_page, timeout=c.TIMEOUT)
-    resp.raise_for_status()
     next_aid = find_from_string(r"\d+", resp.text.splitlines()[0])
 
     bs = BeautifulSoup(resp.text, "html.parser")
@@ -180,11 +187,14 @@ def get_videos_from_user_page(page_url: str, aid: str, base_api: str, videos: Li
     return videos
 
 
-def get_videos_by_playlist_id(pid: str) -> List[Video]:
+def get_videos_by_playlist_id(pid: str, reset_cookie: bool) -> List[Video]:
     playlist_api = c.PLAYLIST_API.format(pid=pid)
-    data = request_with_cookie("POST", playlist_api, return_when="logged")
+    data = request_with_cookie("POST", playlist_api, return_when="logged", reset_cookie=reset_cookie)
     playlist_name = data.get("list", {}).get("name")
     videos_info = data.get("list", {}).get("videos")
+    if not any([playlist_name, videos_info]):
+        raise Exception(f"No permission to access this playlist, {playlist_api}")
+
     videos = []
     for v in videos_info:
         videos.append(Video(vid=v.get("id"), vname=v.get("tf"), pname=playlist_name, uname=""))
@@ -192,19 +202,12 @@ def get_videos_by_playlist_id(pid: str) -> List[Video]:
     return videos
 
 
-def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
-    url = get_video_url(video.vid, low)
-
+def download(video: Video, dest: str, low: bool, overwrite: bool, reset_cookie: bool) -> None:
     save_dir = Path(dest) / (video.pname or video.uname)
     save_dir.mkdir(parents=True, exist_ok=True)
     save_name = save_dir / f"{video.vname}(#{video.vid}).mp4"
-    head = session_request("HEAD", url, stream=True)
-    size = int(head.headers["Content-Length"].strip())
-
     console.print(f"Video ID   : [white]{video.vid}[/]")
     console.print(f"Video Name : [yellow]{video.vname}[/]")
-    console.print(f"Video Link : [underline]{url}[/]")
-    console.print(f"Video Size : [white]{size / 1024 ** 2:.2f}[/] MB")
     console.print(f"Destination: [white]{save_name.absolute()}[/]")
 
     done = 0
@@ -213,6 +216,17 @@ def download(video: Video, dest: str, low: bool, overwrite: bool) -> None:
             save_name.unlink()
         else:
             done = save_name.stat().st_size
+            if verifier.verify(str(save_name)):
+                console.print(f"Video Size : [white]{done / 1024 ** 2:.2f}[/] MB [green](skip downloaded)[/]\n")
+                return None
+
+    url = get_video_url(video.vid, low, reset_cookie)
+    head = session_request("HEAD", url, stream=True)
+    if not head:
+        return None
+    size = int(head.headers["Content-Length"].strip())
+    console.print(f"Video Size : [white]{size / 1024 ** 2:.2f}[/] MB")
+    console.print(f"Video Link : [underline]{url}[/]")
 
     show_process_bar = False
     if done < size:
