@@ -204,6 +204,17 @@ python-versions = ">=3.4"
 smmap2 = ">=2,<3"
 
 [[package]]
+name = "gitdb2"
+version = "4.0.2"
+description = "A mirror package for gitdb"
+category = "dev"
+optional = false
+python-versions = "*"
+
+[package.dependencies]
+gitdb = ">=4.0.1"
+
+[[package]]
 name = "gitpython"
 version = "3.0.9"
 description = "Python Git Library"
@@ -701,7 +712,7 @@ testing = ["pytest (>=4.6)", "pytest-checkdocs (>=1.2.3)", "pytest-flake8", "pyt
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "b5ab881a38073e55a18df11f3b1e4c6d1fb2f5eb480a74e30f89860a35102888"
+content-hash = "40d55148501e7f26bc2e99848c0f7e404e57e9c9157515ed55e9d24c14e98278"
 
 [metadata.files]
 appdirs = [
@@ -778,6 +789,10 @@ filelock = [
 gitdb2 = [
     {file = "gitdb2-3.0.3.post1-py2.py3-none-any.whl", hash = "sha256:f4c17cc3389772557b624e0208ed7cb854c6d7e95962da81e3a3ccd32f7c4b2e"},
     {file = "gitdb2-3.0.3.post1.tar.gz", hash = "sha256:d6983efcd8284c7ccd4c5851aac5b78a1b63f7f53918a1b386957f4a68c8fad3"},
+]
+gitdb2 = [
+    {file = "gitdb2-4.0.2-py3-none-any.whl", hash = "sha256:a1c974e5fab8c2c90192c1367c81cbc54baec04244bda1816e9c8ab377d1cba3"},
+    {file = "gitdb2-4.0.2.tar.gz", hash = "sha256:0986cb4003de743f2b3aba4c828edd1ab58ce98e1c4a8acf72ef02760d4beb4e"},
 ]
 gitpython = [
     {file = "GitPython-3.0.9-py3-none-any.whl", hash = "sha256:ecf785b0b23bb6d28f5fff3d67cc4a07cb607e94476495d2a943d2e57d9fd473"},
