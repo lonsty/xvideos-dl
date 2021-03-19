@@ -51,7 +51,7 @@ bandit = "^1.7.0"
 safety = "^1.10.3"
 pytest = "^6.2.1"
 pylint = "^2.6.0"
-pydocstyle = "^5.1.1"
+pydocstyle = "^6.0.0"
 pre-commit = "^2.9.3"
 
 [tool.black]
