@@ -55,6 +55,12 @@ xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life ht
 
 ## Release History
 
+### 1.1.2
+
+Bugfix:
+
+- Fixed a bug that would not retry when the network connection failed.
+
 ### 1.1.1
 
 New Feature:

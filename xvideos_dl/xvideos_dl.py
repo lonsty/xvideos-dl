@@ -11,7 +11,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 from integv import FileIntegrityVerifier
-from requests import HTTPError, Response, Session
+from requests import Response, Session
 from requests.cookies import cookiejar_from_dict
 from rich.console import Console
 
@@ -31,7 +31,6 @@ class Process:
     def status(self):
         if self.total > 1:
             return f"{self.now}/{self.total} ({self.now / self.total * 100:.0f}%)"
-        # return "☯"
         return "⚓"
 
 
@@ -55,12 +54,11 @@ def retry(exceptions=Exception, tries=3, delay=1, backoff=2):
     return deco_retry
 
 
-@retry(HTTPError)
+@retry()
 def session_request(method: str, url: str, **kwargs) -> Optional[Response]:
     resp = session.request(method, url, **kwargs)
     if resp.status_code == 404:
-        console.print(f"[red]404 Client Error: Not Found for url: {url}[/]")
-        print()
+        console.print(f"[red]404 Client Error: Not Found for url: {url}[/]\n")
         return None
     resp.raise_for_status()
     return resp
