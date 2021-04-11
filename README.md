@@ -30,7 +30,7 @@ CLI to download videos from https://xvideos.com
 
 ⚠️**Requires:**
 
-- `Python`: >= 3.7
+- `Python`: >= 3.6.1
 - `Cookie`: When you run it for the first time, you will be prompted to enter the cookie, log in https://xvideos.com with your account, copy and paste a long string of cookies, then enjoy it.
 
 Cookie is stored in *~/.xvideos/cookie* (or *C:\Users\<USER>\cookie*).
@@ -54,6 +54,10 @@ xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life ht
 ```
 
 ## Release History
+
+### 1.2.0
+
+- Support for Python 3.6.1+
 
 ### 1.1.2
 

@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3.8
+  python: python3.6
 
 default_stages: [commit, push]
 
@@ -14,7 +14,7 @@ repos:
     hooks:
       - id: pyupgrade
         name: pyupgrade
-        entry: poetry run pyupgrade --py37-plus
+        entry: poetry run pyupgrade --py36-plus
         types: [python]
         language: system
 

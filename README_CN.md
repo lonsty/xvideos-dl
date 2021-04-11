@@ -52,6 +52,10 @@ xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life ht
 
 ## Release History
 
+### 1.2.0
+
+- Support for Python 3.6.1+
+
 ### 1.1.2
 
 Bugfix:
