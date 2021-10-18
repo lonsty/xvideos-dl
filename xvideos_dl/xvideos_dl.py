@@ -200,12 +200,26 @@ def get_videos_by_playlist_id(pid: str, reset_cookie: bool) -> List[Video]:
     return videos
 
 
+def remove_illegal_chars(string: str) -> str:
+    illegal_chars: str = "\\/:*\"<>|;?!%^"
+
+    ret_str = str(string)
+    for ch in illegal_chars:
+        ret_str = ret_str.replace(ch, '_')
+
+    # remove non unicode characters
+    ret_str = bytes(ret_str, 'utf-8').decode('utf-8', 'ignore')
+
+    return ret_str
+
+
 def download(video: Video, dest: str, low: bool, overwrite: bool, reset_cookie: bool) -> None:
     save_dir = Path(dest) / (video.pname or video.uname)
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_name = save_dir / f"{video.vname}(#{video.vid}).mp4"
+    video_name = remove_illegal_chars(video.vname)
+    save_name = save_dir / f"{video_name}(#{video.vid}).mp4"
     console.print(f"Video ID   : [white]{video.vid}[/]")
-    console.print(f"Video Name : [yellow]{video.vname}[/]")
+    console.print(f"Video Name : [yellow]{video_name}[/]")
     console.print(f"Destination: [white]{save_name.absolute()}[/]")
 
     done = 0
