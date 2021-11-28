@@ -2,6 +2,7 @@
 from typing import List
 
 import sys
+from enum import Enum
 
 import typer
 from cursor import HiddenCursor
@@ -26,6 +27,12 @@ app = typer.Typer(
 console = Console()
 
 
+class Quality(str, Enum):
+    high = "high"
+    middle = "middle"
+    low = "low"
+
+
 def version_callback(value: bool):
     """Prints the version of the package."""
     if value:
@@ -45,9 +52,9 @@ def main(
     start: int = typer.Option(1, "-s", "--start", show_default=False, help="Download from the 1st (default) video."),
     number: int = typer.Option(None, "-n", "--number", help="Quit after downloading number of videos."),
     reverse: bool = typer.Option(False, "-r", "--reverse", help="Download videos in reverse order."),
-    low: bool = typer.Option(False, "-l", "--low-definition", help="Download low definition videos."),
+    quality: Quality = typer.Option(Quality.high, "-q", "--quality", help="Video quality to download."),
     overwrite: bool = typer.Option(False, "-o", "--overwrite", help="Overwrite the exist video files."),
-    reset_cookie: bool = typer.Option(False, "--reset-cookie", help="Use a new cookie for this time."),
+    reset_cookie: bool = typer.Option(False, "--reset-cookie", help="Use a new cookie."),
     version: bool = typer.Option(
         None,
         "-v",
@@ -88,7 +95,7 @@ def main(
             with HiddenCursor():
                 process = Process(idx + 1, total)
                 console.print(f"Downloading: [cyan]{process.status()}[/]")
-                download(video, dest, low, overwrite, reset_cookie)
+                download(video, dest, quality, overwrite, reset_cookie)
     except Exception as e:
         console.print(f"[red]{e}[/]")
         sys.exit(1)

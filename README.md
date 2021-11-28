@@ -55,6 +55,13 @@ xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life ht
 
 ## Release History
 
+### 1.3.0
+
+- Added support for downloading higher quality videos. 
+
+  CLI will download the highest quality video by default, which may be 1080p or higher, depending on the videos provided by XVIDEOS.
+  So the download speed will be slower, if you want to be faster, you can use `-q low` or `-q middle`.
+
 ### 1.2.0
 
 - Support for Python 3.6.1+

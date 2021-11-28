@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
 
+import ffmpeg
 from bs4 import BeautifulSoup
 from integv import FileIntegrityVerifier
 from requests import Response, Session
@@ -20,7 +21,8 @@ from . import constant as c
 console = Console()
 session = Session()
 verifier = FileIntegrityVerifier()
-Video = namedtuple("Video", "vid vname pname uname")
+Video = namedtuple("Video", "vid vname pname uname vpage")
+HLS = namedtuple("HLS", "name bandwidth resolution url")
 
 
 @dataclass
@@ -56,7 +58,7 @@ def retry(exceptions=Exception, tries=3, delay=1, backoff=2):
 
 @retry()
 def session_request(method: str, url: str, **kwargs) -> Optional[Response]:
-    resp = session.request(method, url, **kwargs)
+    resp = session.request(method, url, timeout=c.TIMEOUT, **kwargs)
     if resp.status_code == 404:
         console.print(f"[red]404 Client Error: Not Found for url: {url}[/]\n")
         return None
@@ -104,22 +106,51 @@ def parse_video_name(index: str) -> str:
 
 
 def parse_username(index: str) -> str:
-    return find_from_string(r"(?<=profiles/|channels/)\w*(?=/*)", index.strip())
+    return find_from_string(r"(?<=profiles/|channels/).+(?=/*)", index.strip())
 
 
 def parse_playlist_id(index: str) -> str:
     return find_from_string(r"(?<=/favorite/)\d+(?=/)", index.strip())
 
 
-def safe_filename(filename: str) -> str:
-    return "".join([char for char in filename if char not in r'\/:*?"<>|']).strip()
+def parse_video_hls(index: str) -> str:
+    return find_from_string(r"(?<=setVideoHLS\(['\"]).+(?=['\"]\))", index.strip())
+
+
+def parse_hls(index: str) -> List[HLS]:
+    """
+    #EXTM3U
+    #EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=423936,RESOLUTION=360x640,NAME="360p"
+    hls-360p-045d9.m3u8
+    #EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=155648,RESOLUTION=250x444,NAME="250p"
+    hls-250p-639f7.m3u8
+    """
+    hls_list = []
+    lines = index.strip().split("\n")
+    for idx, line in enumerate(lines):
+        if idx % 2 == 1:
+            args_str = line.split(":")[-1]
+            kwargs = {kv.split("=")[0]: kv.split("=")[1] for kv in args_str.split(",")}
+            hls_list.append(
+                HLS(
+                    name=kwargs["NAME"].replace('"', ""),
+                    bandwidth=kwargs["BANDWIDTH"],
+                    resolution=kwargs["RESOLUTION"],
+                    url=lines[idx + 1],
+                )
+            )
+
+    # sort by bandwidth
+    hls_list = sorted(hls_list, key=lambda x: int(x.bandwidth))
+
+    return hls_list
 
 
 def get_video_full_name(index: str) -> str:
-    resp = session_request("GET", index, timeout=c.TIMEOUT)
+    resp = session_request("GET", index)
     title_tab = re.search(r'(?<=<meta property="og:title" content=").*?(?="\s*/>)', resp.text)
     if title_tab:
-        return safe_filename(html.unescape(title_tab.group()))
+        return str(html.unescape(title_tab.group()))
     return ""
 
 
@@ -129,7 +160,7 @@ def request_with_cookie(method: str, url: str, return_when: str, reset_cookie: b
 
     while 1:
         session.cookies = cookiejar_from_dict(cookies)
-        resp = session_request(method, url, timeout=c.TIMEOUT)
+        resp = session_request(method, url)
         data = resp.json()
         keys = return_when.split(".")
         value = data
@@ -165,13 +196,14 @@ def get_video_url(vid: str, low: bool, reset_cookie: bool) -> str:
 def get_videos_from_play_page(page_url: str) -> Video:
     vid = parse_video_id(page_url)
     vname = get_video_full_name(page_url) or parse_video_name(page_url)
-    return Video(vid=vid, vname=vname, pname="", uname="")
+    vpage = c.VIDEO_PAGE.format(vid=vid)
+    return Video(vid=vid, vname=vname, pname="", uname="", vpage=vpage)
 
 
 def get_videos_from_user_page(page_url: str, aid: str, base_api: str, videos: List[Video]) -> List[Video]:
     username = parse_username(page_url)
     start_page = base_api.format(u=username, aid=aid)
-    resp = session_request("POST", start_page, timeout=c.TIMEOUT)
+    resp = session_request("POST", start_page)
     next_aid = find_from_string(r"\d+", resp.text.splitlines()[0])
 
     bs = BeautifulSoup(resp.text, "html.parser")
@@ -179,7 +211,8 @@ def get_videos_from_user_page(page_url: str, aid: str, base_api: str, videos: Li
     for block in blocks:
         vid = block.attrs.get("data-id")
         vname = block.find("p", class_="title").find("a").attrs.get("title")
-        videos.append(Video(vid=vid, vname=vname, pname="", uname=username))
+        vpage = c.VIDEO_PAGE.format(vid=vid)
+        videos.append(Video(vid=vid, vname=vname, pname="", uname=username, vpage=vpage))
     if int(next_aid) > 0:
         return get_videos_from_user_page(page_url, next_aid, base_api, videos)
     return videos
@@ -195,33 +228,38 @@ def get_videos_by_playlist_id(pid: str, reset_cookie: bool) -> List[Video]:
 
     videos = []
     for v in videos_info:
-        videos.append(Video(vid=v.get("id"), vname=v.get("tf"), pname=playlist_name, uname=""))
+        vid = v.get("id")
+        vname = v.get("tf")
+        vpage = c.VIDEO_PAGE.format(vid=vid)
+        videos.append(Video(vid=vid, vname=vname, pname=playlist_name, uname="", vpage=vpage))
 
     return videos
 
 
 def remove_illegal_chars(string: str) -> str:
-    illegal_chars: str = "\\/:*\"<>|;?!%^"
+    illegal_chars: str = r'\/:*?"<>|'
 
     ret_str = str(string)
     for ch in illegal_chars:
-        ret_str = ret_str.replace(ch, '_')
+        ret_str = ret_str.replace(ch, "_")
 
     # remove non unicode characters
-    ret_str = bytes(ret_str, 'utf-8').decode('utf-8', 'ignore')
+    ret_str = bytes(ret_str, "utf-8").decode("utf-8", "ignore")
 
     return ret_str
 
 
-def download(video: Video, dest: str, low: bool, overwrite: bool, reset_cookie: bool) -> None:
-    save_dir = Path(dest) / (video.pname or video.uname)
-    save_dir.mkdir(parents=True, exist_ok=True)
-    video_name = remove_illegal_chars(video.vname)
-    save_name = save_dir / f"{video_name}(#{video.vid}).mp4"
-    console.print(f"Video ID   : [white]{video.vid}[/]")
-    console.print(f"Video Name : [yellow]{video_name}[/]")
-    console.print(f"Destination: [white]{save_name.absolute()}[/]")
+def get_hls_list(video: Video) -> List[HLS]:
+    page_resp = session_request("GET", video.vpage)
+    hls_url = parse_video_hls(page_resp.text)
+    prefix = "/".join(hls_url.split("/")[:-1])
 
+    hls_resp = session_request("GET", hls_url)
+    hls_list = parse_hls(hls_resp.text)
+    return [hls._replace(url=f"{prefix}/{hls.url}") for hls in hls_list]
+
+
+def download_mp4_resource(video: Video, save_name: Path, overwrite: bool, low: bool, reset_cookie: bool) -> None:
     done = 0
     if save_name.is_file():
         if overwrite:
@@ -238,7 +276,6 @@ def download(video: Video, dest: str, low: bool, overwrite: bool, reset_cookie: 
         return None
     size = int(head.headers["Content-Length"].strip())
     console.print(f"Video Size : [white]{size / 1024 ** 2:.2f}[/] MB")
-    console.print(f"Video Link : [underline]{url}[/]")
 
     show_process_bar = False
     if done < size:
@@ -254,7 +291,7 @@ def download(video: Video, dest: str, low: bool, overwrite: bool, reset_cookie: 
             done = size
         end = done
         headers = {"Range": f"bytes={start}-{end - 1}"}
-        resp = session_request("GET", url, stream=True, headers=headers, timeout=c.TIMEOUT)
+        resp = session_request("GET", url, stream=True, headers=headers)
 
         with open(save_name, "ab") as f:
             write = start
@@ -265,7 +302,7 @@ def download(video: Video, dest: str, low: bool, overwrite: bool, reset_cookie: 
                 percent_done = int(min(write, size) / size * 1000) / 10
                 bar_done = int(percent_done * 0.6)
                 console.print(
-                    f"{emoji} |{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}%[/]", end="\r"
+                    f"{emoji} ╞{'█' * bar_done}{' ' * (60 - bar_done)} [green]{percent_done:5.1f}%[/]", end="\r"
                 )
         # Download speed
         speed = (end - start) / (time.time() - time_start)
@@ -276,8 +313,53 @@ def download(video: Video, dest: str, low: bool, overwrite: bool, reset_cookie: 
         else:
             speed_text = f"{speed / 1048576:7.2f}MB/s"
         console.print(
-            f"{emoji} |{'█' * bar_done}{' ' * (60 - bar_done)}| [green]{percent_done:5.1f}% {speed_text}[/]", end="\r"
+            f"{emoji} ╞{'█' * bar_done}{' ' * (60 - bar_done)}╡ [green]{percent_done:5.1f}% {speed_text}[/]", end="\r"
         )
 
     if show_process_bar:
         print(end="\n\n")
+
+
+def download_hls_stream(playlist: str, save_name: Path, overwrite: bool) -> None:
+    console.print("⏳ Wait a mininute...", end="\r")
+    ffnpeg_cmd = ffmpeg.input(playlist).output(str(save_name), codec="copy", loglevel="quiet")
+
+    if save_name.is_file():
+        if overwrite:
+            # Cause got playlist.m3u8, we can download video by ffmpeg
+            ffnpeg_cmd.run(overwrite_output=overwrite)
+    else:
+        ffnpeg_cmd.run()
+    console.print(f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB\n")
+
+
+def download(video: Video, dest: str, quality: str, overwrite: bool, reset_cookie: bool) -> None:
+    save_dir = Path(dest) / (video.pname or video.uname)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    video_name = remove_illegal_chars(video.vname)
+    save_name = save_dir / f"{video_name}(#{video.vid}).mp4"
+
+    console.print(f"Video ID   : [white]{video.vid}[/]")
+    console.print(f"Video Name : [yellow]{video_name}[/]")
+    console.print(f"Video Page : [underline]{video.vpage}[/]")
+
+    # Get all hls playlists
+    hls_list = get_hls_list(video)
+
+    # Choose video resolution
+    if quality == "high":
+        index = -1
+    elif quality == "middle":
+        index = int(len(hls_list) / 2)
+    else:
+        index = 0
+
+    hls = hls_list[index]
+    console.print(f"Quality    : [white]{hls.name}[/]")
+    console.print(f"Destination: [white]{save_name.absolute()}[/]")
+
+    if hls.name in c.HAS_MP4_RESOUCE:
+        low = True if quality == "low" else False
+        download_mp4_resource(video, save_name, overwrite, low, reset_cookie)
+    else:
+        download_hls_stream(hls.url, save_name, overwrite)

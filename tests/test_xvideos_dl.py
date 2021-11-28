@@ -147,4 +147,4 @@ def test_get_video_full_name(index, expected):
     ],
 )
 def test_get_video_url(vid, expected):
-    assert get_video_url(vid).split("?")[0] == expected.split("?")[0]
+    assert get_video_url(vid, False, False).split("?")[0] == expected.split("?")[0]
