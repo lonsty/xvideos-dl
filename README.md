@@ -25,15 +25,16 @@ CLI to download videos from https://xvideos.com
 - [X] Download all videos uploaded by the user (requires the URL of the user's homepage)
 - [X] Download all videos published by the channel (requires the URL of the channel homepage)
 - [X] Segmented high-speed download, breakpoint download, progress and status display
+- [x] Download high quality videos, 1080p or higher
 
 ## Usage
 
 ⚠️**Requires:**
 
 - `Python`: >= 3.6.1
-- `Cookie`: When you run it for the first time, you will be prompted to enter the cookie, log in https://xvideos.com with your account, copy and paste a long string of cookies, then enjoy it.
+- `Cookie`: When you run it for the first time, you will be prompted to enter the cookie, log in https://xvideos.com with your account, copy and paste a long string of cookie (must has `session_token=xxx`), then enjoy it.
 
-Cookie is stored in *~/.xvideos/cookie* (or *C:\Users\<USER>\cookie*).
+Cookie is stored in *~/.xvideos/cookie* (or *C:\Users\<USER>\.xvideos\cookie*).
 
 - Install xvideos-dl
 
@@ -52,6 +53,8 @@ xvideos-dl --help
 ```bash
 xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life https://www.xvideos.com/favorite/71879935/_ https://www.xvideos.com/profiles/mypornstation https://www.xvideos.com/channels/av69tv  
 ```
+
+![demo](demo_2.jpeg)
 
 ## Release History
 

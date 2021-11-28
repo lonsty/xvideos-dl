@@ -321,16 +321,21 @@ def download_mp4_resource(video: Video, save_name: Path, overwrite: bool, low: b
 
 
 def download_hls_stream(playlist: str, save_name: Path, overwrite: bool) -> None:
+    # Cause got playlist.m3u8, we can download video by ffmpeg
     console.print("⏳ Wait a mininute...", end="\r")
     ffnpeg_cmd = ffmpeg.input(playlist).output(str(save_name), codec="copy", loglevel="quiet")
 
     if save_name.is_file():
         if overwrite:
-            # Cause got playlist.m3u8, we can download video by ffmpeg
             ffnpeg_cmd.run(overwrite_output=overwrite)
+            console.print(f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB\n")
+        else:
+            console.print(
+                f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB " "[green](skip downloaded)[/]\n"
+            )
     else:
         ffnpeg_cmd.run()
-    console.print(f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB\n")
+        console.print(f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB\n")
 
 
 def download(video: Video, dest: str, quality: str, overwrite: bool, reset_cookie: bool) -> None:
@@ -355,7 +360,7 @@ def download(video: Video, dest: str, quality: str, overwrite: bool, reset_cooki
         index = 0
 
     hls = hls_list[index]
-    console.print(f"Quality    : [white]{hls.name}[/]")
+    console.print(f"Resolution : [white]{hls.name} @ {hls.resolution}[/]")
     console.print(f"Destination: [white]{save_name.absolute()}[/]")
 
     if hls.name in c.HAS_MP4_RESOUCE:
