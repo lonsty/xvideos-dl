@@ -23,8 +23,17 @@ https://xvideos.com H 片命令行下载工具
 - [X] 下载用户上传的所有视频（需用户首页的 URL）
 - [X] 下载频道发布的所有视频（需频道首页的 URL）
 - [X] 分段高速下载，断点下载，进度与状态显示
+- [x] 下载最高清视频（需要安装ffmpeg）
 
 ## 使用说明
+
+### 安装依赖
+
+- 安装 Python 3.6.1 或以上版本
+- 安装 [ffmpeg](https://ffmpeg.org/download.html)
+    - Ubuntu/Debian: `sudo apt install ffmpeg`
+    - MacOS: `brew install ffmpeg`
+- 注册 https://xvideo.com 账号，登录并拷贝 Cookie（必须有 `session_token=xxx`），首次使用时根据提示粘贴即可
 
 ### 安装工具 xvideos-dl
 
@@ -48,9 +57,16 @@ xvideos-dl --help
 xvideos-dl https://www.xvideos.com/video37177493/asian_webcam_2_camsex4u.life https://www.xvideos.com/favorite/71879935/_ https://www.xvideos.com/profiles/mypornstation https://www.xvideos.com/channels/av69tv  
 ```
 
-![示例](demo_1.PNG)
+![示例](demo_2.jpeg)
 
 ## Release History
+
+### 1.3.0
+
+- Added support for downloading higher quality videos. 
+
+  CLI will download the highest quality video by default, which may be 1080p or higher, depending on the videos provided by XVIDEOS.
+  So the download speed will be slower, if you want to be faster, you can use `-q low` or `-q middle`.
 
 ### 1.2.0
 
