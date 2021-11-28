@@ -32,6 +32,9 @@ CLI to download videos from https://xvideos.com
 ⚠️**Requires:**
 
 - `Python`: >= 3.6.1
+- [`ffmpeg`](https://ffmpeg.org/download.html)
+  - Ubuntu/Debian: `sudo apt install ffmpeg`
+  - MacOS: `brew install ffmpeg`
 - `Cookie`: When you run it for the first time, you will be prompted to enter the cookie, log in https://xvideos.com with your account, copy and paste a long string of cookie (must has `session_token=xxx`), then enjoy it.
 
 Cookie is stored in *~/.xvideos/cookie* (or *C:\Users\<USER>\.xvideos\cookie*).
