@@ -6,7 +6,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "xvideos-dl"
-version = "1.3.0"
+version = "1.4.0"
 description = "CLI to download videos from https://xvideos.com"
 readme = "README.md"
 authors = [
@@ -41,6 +41,7 @@ cursor = "^1.3.4"
 integv = "^1.3.0"
 requests = "^2.25.0"
 ffmpeg-python = "^0.2.0"
+halo = "^0.0.31"
 
 [tool.poetry.dev-dependencies]
 darglint = "^1.7.0"

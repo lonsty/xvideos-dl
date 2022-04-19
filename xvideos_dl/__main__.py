@@ -42,7 +42,7 @@ def version_callback(value: bool):
 
 @app.command(name="CLI to download videos from https://xvideos.com")
 def main(
-    urls: List[str] = typer.Argument(..., help="URL of the video web page."),
+    urls: List[str] = typer.Argument(..., help="URLs of the video web pages."),
     dest: str = typer.Option(
         "./xvideos",
         "-d",
@@ -99,3 +99,7 @@ def main(
     except Exception as e:
         console.print(f"[red]{e}[/]")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    app()

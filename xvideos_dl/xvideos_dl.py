@@ -11,6 +11,7 @@ from pathlib import Path
 
 import ffmpeg
 from bs4 import BeautifulSoup
+from halo import Halo
 from integv import FileIntegrityVerifier
 from requests import Response, Session
 from requests.cookies import cookiejar_from_dict
@@ -21,7 +22,7 @@ from . import constant as c
 console = Console()
 session = Session()
 verifier = FileIntegrityVerifier()
-Video = namedtuple("Video", "vid vname pname uname vpage")
+Video = namedtuple("Video", "vid vname pname uname vpage thumb thumbs preview")
 HLS = namedtuple("HLS", "name bandwidth resolution url")
 
 
@@ -197,7 +198,7 @@ def get_videos_from_play_page(page_url: str) -> Video:
     vid = parse_video_id(page_url)
     vname = get_video_full_name(page_url) or parse_video_name(page_url)
     vpage = c.VIDEO_PAGE.format(vid=vid)
-    return Video(vid=vid, vname=vname, pname="", uname="", vpage=vpage)
+    return Video(vid=vid, vname=vname, pname="", uname="", vpage=vpage, thumb="", thumbs="", preview="")
 
 
 def get_videos_from_user_page(page_url: str, aid: str, base_api: str, videos: List[Video]) -> List[Video]:
@@ -212,7 +213,29 @@ def get_videos_from_user_page(page_url: str, aid: str, base_api: str, videos: Li
         vid = block.attrs.get("data-id")
         vname = block.find("p", class_="title").find("a").attrs.get("title")
         vpage = c.VIDEO_PAGE.format(vid=vid)
-        videos.append(Video(vid=vid, vname=vname, pname="", uname=username, vpage=vpage))
+        thumb = block.find("div", class_="thumb").find("img").attrs.get("data-src")
+        thumb_large = re.sub(r"thumbs169[\w]*?/", "thumbs169poster/", thumb)  # thumbs169poster > thumbs169lll
+        thumbnails = re.sub(
+            r"(-\d)?/\w{32}\.\d+\.jpg$", "/mozaique.jpg", re.sub(r"thumbs169[\w]*?/", "thumbs169/", thumb)
+        )
+        preview = re.sub(r"(-\d)?/\w{32}\.\d+\.jpg$", "_169.mp4", re.sub(r"thumbs169[\w]*?/", "videopreview/", thumb))
+        # print(f"thumb: {thumb}")
+        # print(f"thumb_large: {thumb_large}")
+        # print(f"thumbnails: {thumbnails}")
+        # print(f"preview: {preview}")
+
+        videos.append(
+            Video(
+                vid=vid,
+                vname=vname,
+                pname="",
+                uname=username,
+                vpage=vpage,
+                thumb=thumb_large,
+                thumbs=thumbnails,
+                preview=preview,
+            )
+        )
     if int(next_aid) > 0:
         return get_videos_from_user_page(page_url, next_aid, base_api, videos)
     return videos
@@ -231,7 +254,9 @@ def get_videos_by_playlist_id(pid: str, reset_cookie: bool) -> List[Video]:
         vid = v.get("id")
         vname = v.get("tf")
         vpage = c.VIDEO_PAGE.format(vid=vid)
-        videos.append(Video(vid=vid, vname=vname, pname=playlist_name, uname="", vpage=vpage))
+        videos.append(
+            Video(vid=vid, vname=vname, pname=playlist_name, uname="", vpage=vpage, thumb="", thumbs="", preview="")
+        )
 
     return videos
 
@@ -259,7 +284,23 @@ def get_hls_list(video: Video) -> List[HLS]:
     return [hls._replace(url=f"{prefix}/{hls.url}") for hls in hls_list]
 
 
-def download_mp4_resource(video: Video, save_name: Path, overwrite: bool, low: bool, reset_cookie: bool) -> None:
+def download_thumbnails(video: Video, save_name: Path) -> bool:
+    save_name = str(save_name).replace(".mp4", "_thumbnails.jpg")
+    resp = session_request("GET", video.thumbs)
+    with open(save_name, "wb") as f:
+        for chunk in resp.iter_content(8192):
+            f.write(chunk)
+
+
+def download_preview(video: Video, save_name: Path) -> bool:
+    save_name = str(save_name).replace(".mp4", "_preview.mp4")
+    resp = session_request("GET", video.preview)
+    with open(save_name, "wb") as f:
+        for chunk in resp.iter_content(8192):
+            f.write(chunk)
+
+
+def download_mp4_resource(video: Video, save_name: Path, overwrite: bool, low: bool, reset_cookie: bool) -> bool:
     done = 0
     if save_name.is_file():
         if overwrite:
@@ -268,12 +309,12 @@ def download_mp4_resource(video: Video, save_name: Path, overwrite: bool, low: b
             done = save_name.stat().st_size
             if verifier.verify(str(save_name)):
                 console.print(f"Video Size : [white]{done / 1024 ** 2:.2f}[/] MB [green](skip downloaded)[/]\n")
-                return None
+                return False
 
     url = get_video_url(video.vid, low, reset_cookie)
     head = session_request("HEAD", url, stream=True)
     if not head:
-        return None
+        return False
     size = int(head.headers["Content-Length"].strip())
     console.print(f"Video Size : [white]{size / 1024 ** 2:.2f}[/] MB")
 
@@ -319,23 +360,29 @@ def download_mp4_resource(video: Video, save_name: Path, overwrite: bool, low: b
     if show_process_bar:
         print(end="\n\n")
 
+    return True
+
 
 def download_hls_stream(playlist: str, save_name: Path, overwrite: bool) -> None:
     # Cause got playlist.m3u8, we can download video by ffmpeg
-    console.print("⏳ Wait a mininute...", end="\r")
     ffnpeg_cmd = ffmpeg.input(playlist).output(str(save_name), codec="copy", loglevel="quiet")
 
     if save_name.is_file():
         if overwrite:
-            ffnpeg_cmd.run(overwrite_output=overwrite)
+            with Halo("Wait a while...", color="cyan"):
+                ffnpeg_cmd.run(overwrite_output=overwrite)
             console.print(f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB\n")
+            return True
         else:
             console.print(
                 f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB " "[green](skip downloaded)[/]\n"
             )
+            return False
     else:
-        ffnpeg_cmd.run()
+        with Halo("Wait a while...", color="cyan"):
+            ffnpeg_cmd.run()
         console.print(f"Video Size : [white]{save_name.stat().st_size / 1024 ** 2:.2f}[/] MB\n")
+        return True
 
 
 def download(video: Video, dest: str, quality: str, overwrite: bool, reset_cookie: bool) -> None:
@@ -365,6 +412,12 @@ def download(video: Video, dest: str, quality: str, overwrite: bool, reset_cooki
 
     if hls.name in c.HAS_MP4_RESOUCE:
         low = True if quality == "low" else False
-        download_mp4_resource(video, save_name, overwrite, low, reset_cookie)
+        downloaded = download_mp4_resource(video, save_name, overwrite, low, reset_cookie)
     else:
-        download_hls_stream(hls.url, save_name, overwrite)
+        downloaded = download_hls_stream(hls.url, save_name, overwrite)
+
+    # set video cover image
+    # ffmpeg -i output.mp4 -i https://pic2.zhimg.com/80/v2-392c964c745621b65c9d3cfe70a0e655_1440w.jpg -map 1 -map 0 -c copy -disposition:0 attached_pic output_new3.mp4
+    if downloaded:
+        download_thumbnails(video, save_name)
+        download_preview(video, save_name)
