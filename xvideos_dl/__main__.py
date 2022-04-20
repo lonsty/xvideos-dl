@@ -11,10 +11,10 @@ from xvideos_dl import __version__
 from xvideos_dl.xvideos_dl import (
     Process,
     download,
-    get_videos_by_playlist_id,
+    get_videos_from_favorite_page,
+    get_videos_from_model_page,
     get_videos_from_play_page,
     get_videos_from_user_page,
-    parse_playlist_id,
 )
 
 from . import constant as c
@@ -76,9 +76,20 @@ def main(
                 videos = []
                 videos = get_videos_from_user_page(url, "0", c.CHANNEL_API, videos)
                 videos_to_download.extend(videos)
+            elif "/amateur-channels/" in url:
+                videos = []
+                videos = get_videos_from_user_page(url, "0", c.AMATEUR_CHANNEL_API, videos)
+                videos_to_download.extend(videos)
+            elif "/pornstar-channels/" in url:
+                videos = []
+                videos = get_videos_from_user_page(url, "0", c.PORNSTAR_CHANNEL_API, videos)
+                videos_to_download.extend(videos)
+            elif "/models/" in url:
+                videos = []
+                videos = get_videos_from_model_page(url, 0, videos)
+                videos_to_download.extend(videos)
             elif "/favorite/" in url:
-                pid = parse_playlist_id(url)
-                videos = get_videos_by_playlist_id(pid, reset_cookie)
+                videos = get_videos_from_favorite_page(url, reset_cookie)
                 videos_to_download.extend(videos)
             else:
                 video = get_videos_from_play_page(url)
